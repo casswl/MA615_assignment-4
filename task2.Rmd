@@ -1,0 +1,158 @@
+---
+title: "wonderful_task2"
+author: "Peng Liu"
+date: "12/9/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=F,message = F,echo=F,highlight=F)
+
+library(tidyverse)
+library(knitr)
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(gutenbergr)
+library(ggplot2)
+library(tidyr)
+library(stringi)
+library("magrittr")
+```
+
+# Task One
+I chose Frank Baum’s the Wonderful Wizard of Oz as the analysis object of my assignment
+
+```{r}
+data(stop_words)
+wonderful<- gutenberg_download(c(55))
+#write.table(wonderful,'wonderful.txt',row.names = F)
+
+wonderful_oz <- read.table("wonderful.txt", header = TRUE)
+```
+
+# Task Two
+
+First, I use inner_join() to analyze the Wizard of Oz using three different sentiment analysis methods: AFINN, Bing, and NRC. Through Figure 1, we can find that the novel's trajectories of these three methods are the same. But among them, NRC produced the highest positive value.
+```{r fig.cap="Figure 1: Comparing three sentiment lexicons"}
+wonderful_tidy <- wonderful_oz %>%
+  mutate(linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+afinn <- wonderful_tidy %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  wonderful_tidy %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  wonderful_tidy %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+```{r}
+get_sentiments("nrc") %>% 
+  filter(sentiment %in% c("positive", "negative")) %>% 
+  count(sentiment)
+
+get_sentiments("bing") %>% 
+  count(sentiment)
+
+```
+Because the ratio of negative words to positive words in the Bing dictionary is higher than that in the NRC dictionary, this will help the effect we see in the image above and any systematic differences in word matching. Therefore, I will use the Bing method to analyze the novel.
+
+From Figure 2, we can find that the word "great" is the most frequently occurring in positive and the most frequently occurring word among all positive and negative words. The second is "good," which appears more often than the first word, "wicked," negatively. This further shows that this novel is more optimistic.
+```{r fig.align='center',fig.cap="Figure 2: Words that contribute to positive and negative sentiment"}
+bing_word_counts <- wonderful_tidy %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+```
+Figure 3 and Figure 4 respectively show the word cloud of the frequency of words in the novel and the word cloud of positive and negative words. In Figure 3, the top three in frequency are scarecrow, lion, and oz. Scarecrow and lion are the names of the protagonists in the novel, and oz is the name of the destination they are going to.
+```{r fig.align='center',fig.cap="Figure 3: The most common words in the Wonderful Wizard of Oz"}
+library(reshape2)
+library(wordcloud)
+library(RColorBrewer)
+
+wonderful_tidy %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+```{r fig.align='center',fig.cap="Figure 4: Most common positive and negative words in the Wonderful Wizard of Oz"}
+wonderful_tidy %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colorPalette = "Blues",
+                   max.words = 100)
+```
+
+# Extra Credit
+
+Regarding the extra credit, I chose the Loughran method for analysis. In addition to the visualization of the Loughran dictionary, I also drew the frequency diagrams of six emotions about Loughran: "positive," "negative," "litigation," "uncertain," "constraint" and "redundant."
+```{r fig.align='center'}
+loughran <- wonderful_tidy %>%
+  inner_join(get_sentiments("loughran")) %>%
+  mutate(method = "Loughran-McDonald")  %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0)%>% 
+  mutate(sentiment = positive - negative)
+
+loughran%>%ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +labs(title='Loughran-McDonald')+
+  theme_bw()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r fig.align='center'}
+wonderful_tidy %>%
+  count(word) %>%
+  inner_join(get_sentiments("loughran"), by = "word") %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 5, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word,fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ sentiment, scales = "free")
+```
+
+# Reference
+Julia Silge and David Robinson, Text Mining with R: A Tidy Approach, (June 8, 2017), or from https:
+//www.tidytextmining.com/
+
+The Comprehensive R Archive Network, textdata:https://cran.r-project.org/web/packages/textdata/textdata.pdf
+

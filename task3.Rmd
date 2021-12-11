@@ -1,0 +1,110 @@
+---
+title: "wonderful_task3"
+author: "Peng Liu"
+date: "12/10/2021"
+output: pdf_document
+---
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning=F,message = F,echo=F,highlight=F)
+```
+
+```{r}
+source("Book2TN-v6A-1.R")
+
+library(tnum)
+#upload book into tnum
+tnum.authorize("mssp1.bu.edu")
+tnum.setSpace(("test2"))
+#tnBooksFromLines(wonderful_oz$text, "wonderful_task3")
+
+```
+# Tnum
+
+Use the tnum package to upload my book into the test2 space.
+```{r}
+library(knitr)
+library(tidyverse)
+library(gutenbergr)
+library(sentimentr)
+library(lexicon)
+library(tidytext)
+library(ggplot2)
+library(dplyr)
+
+
+
+# query the words from tnum
+q1 <- tnum.query(query = "wonderful_task3/section# has text", max=500)   ## everything
+df1 <- tnum.objectsToDf(q1)
+wonderful_oz <- read.table("wonderful.txt", header = TRUE)
+
+```
+
+
+```{r}
+wonderful_tidy <- wonderful_oz %>%
+  mutate(linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+wonderful_tidy %>% 
+  get_sentences() %>% 
+  sentiment_by(by = NULL) %>% #View()
+  ggplot() + geom_density(aes(ave_sentiment))
+
+
+```
+```{r}
+df1 %>% 
+  get_sentences() %>% 
+  sentiment_by(by = NULL) %>% #View()
+  ggplot() + geom_density(aes(ave_sentiment))
+
+```
+Figure 1 and Figure 2 respectively show the distribution of ave_sentiment of the whole book and first 500sentence of the book
+
+# Compare two methods
+
+In task 2, I use the Bing method to analyze the novel in-depth, so I also use the Bing method for comparison. Through Figure 3, we can find that in the first seven chapters, the second and third chapters are in the opposite state, but the overall plot, the emotions presented by the two analysis methods are the same.
+
+```{r}
+df2<- df1 %>% separate(col=subject,
+                  into =
+              c("path1","section","paragraph","sentence"),
+                  sep = "/", 
+                  fill = "right") %>% 
+  select(section:string.value)
+df2 <- df2 %>% mutate_at(c('section','paragraph','sentence'),~str_extract_all(.,"\\d+") %>% unlist() %>% as.numeric())
+
+wonderful_sentence<-df2%>% dplyr::mutate(sentence_split = get_sentences(string.value))%$%
+    sentiment_by(sentence_split, list(section)) %>% mutate(sentimentr_scale=scale(ave_sentiment))
+wonderful_bing <- wonderful_tidy %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al.")%>%
+  count(method, section = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+wonderful_bing<-wonderful_bing %>% mutate(bing_scale=scale(sentiment)) %>% select(method,section,bing_scale)
+
+
+bing_wonderful<-left_join(wonderful_sentence,wonderful_bing,by='section')%>%
+  select(section,bing_scale,sentimentr_scale) %>%
+  pivot_longer(cols=c('sentimentr_scale','bing_scale'),names_to = 'sentiment')
+
+bing_wonderful%>%ggplot(aes(y=value,x=factor(section))) +
+  geom_bar(aes(fill=factor(sentiment)),stat='identity',position = "dodge",width = 0.7)+theme_bw()+ ggtitle("Comparason of Bing_scale and Sentimentr_scale")+ xlab("chapter")
+
+```
+
+# Reference
+
+Julia Silge and David Robinson, Text Mining with R: A Tidy Approach, (June 8, 2017), or from https:
+//www.tidytextmining.com/
+
+https://github.com/MA615-Yuli/MA615_assignment4
